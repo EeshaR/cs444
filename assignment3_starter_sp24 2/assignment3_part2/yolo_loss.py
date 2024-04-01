@@ -37,7 +37,6 @@ def compute_iou(box1, box2):
     iou = inter / (area1 + area2 - inter)
     return iou
 
-
 class YoloLoss(nn.Module):
     def __init__(self, S, B, l_coord, l_noobj):
         super(YoloLoss, self).__init__()
@@ -61,8 +60,20 @@ class YoloLoss(nn.Module):
         ### CODE ###
         # Your code here
 
+
+        x1 = boxes[:, 0] / self.S - 0.5 * boxes[:, 2]
+        y1 = boxes[:, 1] / self.S - 0.5 * boxes[:, 3]
+        x2 = boxes[:, 0] / self.S + 0.5 * boxes[:, 2]
+        y2 = boxes[:, 1] / self.S + 0.5 * boxes[:, 3]
+
+        boxes[:, 0] = x1
+        boxes[:, 1] = y1
+        boxes[:, 2] = x2
+        boxes[:, 3] = y2
+
         return boxes
 
+    
     def find_best_iou_boxes(self, pred_box_list, box_target):
         """
         Parameters:
@@ -83,8 +94,31 @@ class YoloLoss(nn.Module):
 
         ### CODE ###
         # Your code here
+
+        N = box_target.size(0)
+        box_target = self.xywh2xyxy(box_target)
+
+        best_ious = torch.zeros(N).to('cuda')
+        best_boxes = torch.zeros(N, 5).to('cuda')
+
+        ious = torch.zeros(N, self.B).to('cuda')
+
+        for b in range(len(pred_box_list)):
+            iou = compute_iou(self.xywh2xyxy(pred_box_list[b][:, :4]), box_target) # (N, N)
+            # get diagonal of iou matrix iou[i][j]
+            iou = iou.diag() # (N, )
+            ious[:, b] = iou
+
+        for n in range(N):
+            best_ious[n] = torch.max(ious[n])
+            best_boxes[n] = pred_box_list[torch.argmax(ious[n])][n]
+
+        # detach best_ious so it will not be involved in backward gradient calculation
+        best_ious = best_ious.unsqueeze(1).detach()
+
         return best_ious, best_boxes
 
+    
     def get_class_prediction_loss(self, classes_pred, classes_target, has_object_map):
         """
         Parameters:
@@ -97,8 +131,11 @@ class YoloLoss(nn.Module):
         """
         ### CODE ###
         # Your code here
-        return loss
 
+        loss = F.mse_loss(classes_pred[has_object_map], classes_target[has_object_map], reduction='sum')
+    
+        return loss
+    
     def get_no_object_loss(self, pred_boxes_list, has_object_map):
         """
         Parameters:
@@ -116,8 +153,11 @@ class YoloLoss(nn.Module):
         ### CODE ###
         # Your code here
 
+        loss = 0.0
+        for pred_boxes in pred_boxes_list:
+            loss += F.mse_loss(pred_boxes[..., 0][~has_object_map], torch.zeros_like(pred_boxes[..., 0][~has_object_map]), reduction='sum')
         return loss
-
+    
     def get_contain_conf_loss(self, box_pred_conf, box_target_conf):
         """
         Parameters:
@@ -133,8 +173,10 @@ class YoloLoss(nn.Module):
         """
         ### CODE
         # your code here
-        return loss
 
+        loss = F.mse_loss(box_pred_conf, box_target_conf, reduction='sum')
+        return loss
+    
     def get_regression_loss(self, box_pred_response, box_target_response):
         """
         Parameters:
@@ -149,7 +191,12 @@ class YoloLoss(nn.Module):
         """
         ### CODE
         # your code here
-        return reg_loss
+
+        box_pred_response[:, 2:] = box_pred_response[:, 2:].sqrt()
+        box_target_response[:, 2:] = box_target_response[:, 2:].sqrt()
+
+        return self.l_coord * F.mse_loss(box_pred_response, box_target_response, reduction='sum')
+
 
     def forward(self, pred_tensor, target_boxes, target_cls, has_object_map):
         """
@@ -168,44 +215,57 @@ class YoloLoss(nn.Module):
         Returns:
         loss_dict (dict): with key value stored for total_loss, reg_loss, containing_obj_loss, no_obj_loss and cls_loss
         """
+
         N = pred_tensor.size(0)
         total_loss = 0.0
 
         # split the pred tensor from an entity to separate tensors:
         # -- pred_boxes_list: a list containing all bbox prediction (list) [(tensor) size (N, S, S, 5)  for B pred_boxes]
         # -- pred_cls (containing all classification prediction)
-        # your code here
+        pred_boxes_list = []
+        pred_cls = pred_tensor[:, :, :, self.B * 5:] # (N, S, S, 20)
+
+        for b in range(self.B):
+            start, end = b * 5, (b + 1) * 5
+            pred_boxes_list.append(pred_tensor[:, :, :, start : end])
+
 
         # compcute classification loss
-        # your code here
+        cls_loss = self.get_class_prediction_loss(pred_cls, target_cls, has_object_map)
 
         # compute no-object loss
-        # your code here
+        no_obj_loss = self.get_no_object_loss(pred_boxes_list, has_object_map)
 
         # Re-shape boxes in pred_boxes_list and target_boxes to meet the following desires
         # 1) only keep having-object cells
         # 2) vectorize all dimensions except for the last one for faster computation
-        # your code here
+
+        for i in range(len(pred_boxes_list)):
+            # reshape the boxes to meet the desire, and keep only the cells which have objects
+            pred_boxes_list[i] = pred_boxes_list[i][has_object_map] # (-1, 5)
+
+        has_obj_target_boxes = target_boxes[has_object_map] # (-1, 4)
 
         # find the best boxes among the 2 (or self.B) predicted boxes and the corresponding iou
-        # your code here
+        best_ious, best_boxes = self.find_best_iou_boxes(pred_boxes_list, has_obj_target_boxes)
 
         # compute regression loss between the found best bbox and GT bbox for all the cell containing objects
-        # your code here
+        reg_loss = self.get_regression_loss(best_boxes[:, :4], has_obj_target_boxes)
 
         # compute contain_object_loss
-        # your code here
+        contain_obj_loss = self.get_contain_conf_loss(best_boxes[:, 4].unsqueeze(-1), best_ious)
 
         # compute final loss
-        # your code here
+        total_loss += (cls_loss + no_obj_loss + contain_obj_loss + reg_loss) / N
 
         # construct return loss_dict
-        # your code for loss_dict here
         loss_dict = dict(
-            total_loss=...,
-            reg_loss=...,
-            containing_obj_loss=...,
-            no_obj_loss=...,
-            cls_loss=...,
+            total_loss = total_loss,
+            reg_loss = reg_loss,
+            containing_obj_loss = contain_obj_loss,
+            no_obj_loss = no_obj_loss,
+            cls_loss = cls_loss,
         )
+
         return loss_dict
+    

@@ -308,24 +308,24 @@ class YoloLoss(nn.Module):
         ### CODE ###
         # Your code here
 
-       N = box_target.size(0)
-       box_target = self.xywh2xyxy(box_target)
+        N = box_target.size(0)
+        box_target = self.xywh2xyxy(box_target)
 
-       best_ious = torch.zeros(N).to('cuda')
-       best_boxes = torch.zeros(N, 5).to('cuda')
-
-       ious = torch.zeros(N, self.B).to('cuda')
-
-       for b in range(len(pred_box_list)):
-           iou = compute_iou(self.xywh2xyxy(pred_box_list[b][:, :4]), box_target) # (N, N)
-           iou = iou.diag() # (N, )
-           ious[:, b] = iou
-
-       for n in range(N):
-           best_ious[n] = torch.max(ious[n])
-           best_boxes[n] = pred_box_list[torch.argmax(ious[n])][n]
+        best_ious = torch.zeros(N).to('cuda')
+        best_boxes = torch.zeros(N, 5).to('cuda')
+    
+        ious = torch.zeros(N, self.B).to('cuda')
+    
+        for b in range(len(pred_box_list)):
+            iou = compute_iou(self.xywh2xyxy(pred_box_list[b][:, :4]), box_target) # (N, N)
+            iou = iou.diag() # (N, )
+            ious[:, b] = iou
+    
+        for n in range(N):
+            best_ious[n] = torch.max(ious[n])
+            best_boxes[n] = pred_box_list[torch.argmax(ious[n])][n]
            
-       best_ious = best_ious.unsqueeze(1).detach()
+        best_ious = best_ious.unsqueeze(1).detach()
 
 
         # best_ious, best_boxes = torch.zeros(box_target.size(0)).to('cuda'), torch.zeros(box_target.size(0), 5).to('cuda')

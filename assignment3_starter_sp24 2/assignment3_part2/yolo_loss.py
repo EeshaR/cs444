@@ -121,29 +121,27 @@ class YoloLoss(nn.Module):
         # return best_ious, best_boxes
 
         N = box_target.size(0)
-        box_target_xyxy = self.xywh2xyxy(box_target)
-        best_ious = torch.zeros(N, device='cuda')
-        best_boxes = torch.zeros(N, 5, device='cuda')
-        
-        # Convert all pred boxes to xyxy format and calculate IoUs in batch
-        for i, pred_box in enumerate(pred_box_list):
-            pred_box_xyxy = self.xywh2xyxy(pred_box[:, :4])
-            ious = compute_iou(pred_box_xyxy, box_target_xyxy)  # Assuming compute_iou supports batch operations
-            if i == 0:
-                best_ious, best_idx = ious.max(dim=1)
-            else:
-                new_ious, new_idx = ious.max(dim=1)
-                update_mask = new_ious > best_ious
-                best_ious[update_mask] = new_ious[update_mask]
-                best_idx[update_mask] = new_idx[update_mask] + i * N  # Adjust index for flattened pred_box_list
-        
-        # Select best boxes based on the computed indices
-        flat_pred_boxes = torch.cat(pred_box_list, dim=0)
-        best_boxes_idx = best_idx + torch.arange(N, device='cuda') * len(pred_box_list)
-        best_boxes = flat_pred_boxes[best_boxes_idx]
-        
-        return best_ious.unsqueeze(-1), best_boxes
+        box_target = self.xywh2xyxy(box_target)
 
+        best_ious = torch.zeros(N).to('cuda')
+        best_boxes = torch.zeros(N, 5).to('cuda')
+
+        ious = torch.zeros(N, self.B).to('cuda')
+
+        for b in range(len(pred_box_list)):
+            iou = compute_iou(self.xywh2xyxy(pred_box_list[b][:, :4]), box_target) # (N, N)
+            # get diagonal of iou matrix iou[i][j]
+            iou = iou.diag() # (N, )
+            ious[:, b] = iou
+
+        for n in range(N):
+            best_ious[n] = torch.max(ious[n])
+            best_boxes[n] = pred_box_list[torch.argmax(ious[n])][n]
+
+        # detach best_ious so it will not be involved in backward gradient calculation
+        best_ious = best_ious.unsqueeze(1).detach()
+
+        return best_ious, best_boxes
     
     def get_class_prediction_loss(self, classes_pred, classes_target, has_object_map):
         """

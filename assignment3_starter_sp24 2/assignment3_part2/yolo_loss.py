@@ -118,24 +118,31 @@ class YoloLoss(nn.Module):
         # vals, index = (torch.stack([compute_iou(self.xywh2xyxy(i[:, :4]), (self.xywh2xyxy(box_target))).diag() for i in pred_box_list], dim=1)).max(dim=1)
         # best_ious, best_boxes = vals.unsqueeze(1).detach(), torch.stack([pred_box_list[row][col] for col, row in enumerate(index)], dim=0)
 
-        N = box_target.size(0)
-        box_target = self.xywh2xyxy(box_target).unsqueeze(1)  # Add dimension for broadcasting
-    
-        pred_boxes_xyxy = [self.xywh2xyxy(box[:, :4]) for box in pred_box_list]
-        stacked_pred_boxes = torch.stack(pred_boxes_xyxy, dim=2)  # Shape: (N, 4, B)
-    
-        ious = compute_iou(stacked_pred_boxes, box_target.expand_as(stacked_pred_boxes))  # Compute ious in one go
-        ious = ious.diagonal(dim1=0, dim2=1)  # Extract diagonals, assuming compute_iou adjusts for broadcasted shapes
-    
-        best_ious, best_indices = ious.max(dim=1)  # Find best iou values and their indices
-    
-        # Gather best boxes based on best_indices. Each index in best_indices corresponds to the best box for each N
-        best_boxes = torch.cat([pred_box_list[i][:, :5][range(N), :] for i in range(len(pred_box_list))], dim=0)
-        best_boxes = best_boxes[best_indices + torch.arange(N) * len(pred_box_list), :]
-
-        return best_ious.unsqueeze(1), best_boxes
-
         # return best_ious, best_boxes
+
+        N = box_target.size(0)
+        box_target_xyxy = self.xywh2xyxy(box_target)
+        best_ious = torch.zeros(N, device='cuda')
+        best_boxes = torch.zeros(N, 5, device='cuda')
+        
+        # Convert all pred boxes to xyxy format and calculate IoUs in batch
+        for i, pred_box in enumerate(pred_box_list):
+            pred_box_xyxy = self.xywh2xyxy(pred_box[:, :4])
+            ious = compute_iou(pred_box_xyxy, box_target_xyxy)  # Assuming compute_iou supports batch operations
+            if i == 0:
+                best_ious, best_idx = ious.max(dim=1)
+            else:
+                new_ious, new_idx = ious.max(dim=1)
+                update_mask = new_ious > best_ious
+                best_ious[update_mask] = new_ious[update_mask]
+                best_idx[update_mask] = new_idx[update_mask] + i * N  # Adjust index for flattened pred_box_list
+        
+        # Select best boxes based on the computed indices
+        flat_pred_boxes = torch.cat(pred_box_list, dim=0)
+        best_boxes_idx = best_idx + torch.arange(N, device='cuda') * len(pred_box_list)
+        best_boxes = flat_pred_boxes[best_boxes_idx]
+        
+        return best_ious.unsqueeze(-1), best_boxes
 
     
     def get_class_prediction_loss(self, classes_pred, classes_target, has_object_map):

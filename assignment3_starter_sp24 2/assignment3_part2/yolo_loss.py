@@ -114,13 +114,28 @@ class YoloLoss(nn.Module):
         #    best_boxes[n] = pred_box_list[torch.argmax(ious[n])][n]
            
         # best_ious = best_ious.unsqueeze(1).detach()
+        # best_ious, best_boxes = torch.zeros(box_target.size(0)).to('cuda'), torch.zeros(box_target.size(0), 5).to('cuda')
+        # vals, index = (torch.stack([compute_iou(self.xywh2xyxy(i[:, :4]), (self.xywh2xyxy(box_target))).diag() for i in pred_box_list], dim=1)).max(dim=1)
+        # best_ious, best_boxes = vals.unsqueeze(1).detach(), torch.stack([pred_box_list[row][col] for col, row in enumerate(index)], dim=0)
 
+        N = box_target.size(0)
+        box_target = self.xywh2xyxy(box_target).unsqueeze(1)  # Add dimension for broadcasting
+    
+        pred_boxes_xyxy = [self.xywh2xyxy(box[:, :4]) for box in pred_box_list]
+        stacked_pred_boxes = torch.stack(pred_boxes_xyxy, dim=2)  # Shape: (N, 4, B)
+    
+        ious = compute_iou(stacked_pred_boxes, box_target.expand_as(stacked_pred_boxes))  # Compute ious in one go
+        ious = ious.diagonal(dim1=0, dim2=1)  # Extract diagonals, assuming compute_iou adjusts for broadcasted shapes
+    
+        best_ious, best_indices = ious.max(dim=1)  # Find best iou values and their indices
+    
+        # Gather best boxes based on best_indices. Each index in best_indices corresponds to the best box for each N
+        best_boxes = torch.cat([pred_box_list[i][:, :5][range(N), :] for i in range(len(pred_box_list))], dim=0)
+        best_boxes = best_boxes[best_indices + torch.arange(N) * len(pred_box_list), :]
 
-        best_ious, best_boxes = torch.zeros(box_target.size(0)).to('cuda'), torch.zeros(box_target.size(0), 5).to('cuda')
-        vals, index = (torch.stack([compute_iou(self.xywh2xyxy(i[:, :4]), (self.xywh2xyxy(box_target))).diag() for i in pred_box_list], dim=1)).max(dim=1)
-        best_ious, best_boxes = vals.unsqueeze(1).detach(), torch.stack([pred_box_list[row][col] for col, row in enumerate(index)], dim=0)
+        return best_ious.unsqueeze(1), best_boxes
 
-        return best_ious, best_boxes
+        # return best_ious, best_boxes
 
     
     def get_class_prediction_loss(self, classes_pred, classes_target, has_object_map):

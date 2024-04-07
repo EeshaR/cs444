@@ -1,23 +1,21 @@
+import torch
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 
 from gan.utils import sample_noise, show_images, deprocess_img, preprocess_img
 
 
-def train(
-    D,
-    G,
-    D_solver,
-    G_solver,
-    discriminator_loss,
-    generator_loss,
-    show_every=250,
-    batch_size=128,
-    noise_size=100,
-    num_epochs=10,
-    train_loader=None,
-    device=None,
-):
+def generate_fake_images(generator, batch_size, input_channels, img_size, noise_size, device):
+    noises = sample_noise(batch_size, noise_size).to(device)
+    noises = noises.view(batch_size, noise_size, 1, 1)
+    fake_images = generator(noises)
+
+    return fake_images
+
+
+def train(D, G, D_solver, G_solver, discriminator_loss, generator_loss, show_every=250,
+          batch_size=128, noise_size=100, num_epochs=10, train_loader=None, device=None,
+          path='gan-ckpt.pt', clip_weights=False):
     """
     Train loop for GAN.
 
@@ -56,12 +54,11 @@ def train(
     """
     iter_count = 0
     for epoch in range(num_epochs):
-        print("EPOCH: ", (epoch + 1))
+        print('EPOCH: ', (epoch+1))
         for x, _ in train_loader:
             _, input_channels, img_size, _ = x.shape
 
             real_images = preprocess_img(x).to(device)  # normalize
-
             # Store discriminator loss output, generator loss output, and fake image output
             # in these variables for logging and visualization below
             d_error = None
@@ -72,18 +69,44 @@ def train(
             #          YOUR CODE HERE          #
             ####################################
 
+            # For Wasserstein GAN loss
+            if clip_weights:
+              for p in D.parameters():
+                p.data.clamp_(-0.01, 0.01)
+
+            # Train the discriminator
+            fake_images = generate_fake_images(G, batch_size, input_channels, img_size, noise_size, device).detach()
+            score_real = D(real_images)
+            score_fake = D(fake_images)
+
+            d_error = discriminator_loss(score_real, score_fake)
+            D_solver.zero_grad()
+            d_error.backward()
+            D_solver.step()
+
+            # Train the generator
+            fake_images = generate_fake_images(G, batch_size, input_channels, img_size, noise_size, device)
+            score_fake = D(fake_images)
+            g_error = generator_loss(score_fake)
+
+            G_solver.zero_grad()
+            g_error.backward()
+            G_solver.step()
+
             ##########       END      ##########
 
             # Logging and output visualization
-            if iter_count % show_every == 0:
-                print(
-                    "Iter: {}, D: {:.4}, G:{:.4}".format(
-                        iter_count, d_error.item(), g_error.item()
-                    )
-                )
+            if (iter_count % show_every == 0):
+                print('Iter: {}, D: {:.4}, G:{:.4}'.format(iter_count,d_error.item(),g_error.item()))
                 disp_fake_images = deprocess_img(fake_images.data)  # denormalize
                 imgs_numpy = (disp_fake_images).cpu().numpy()
-                show_images(imgs_numpy[0:16], color=input_channels != 1)
+                show_images(imgs_numpy[0:16], color=input_channels!=1)
                 plt.show()
                 print()
+
+                torch.save({
+                  'G': G.state_dict(),
+                  'D': D.state_dict(),
+                }, path)
+
             iter_count += 1

@@ -57,5 +57,7 @@ class Generator(nn.Module):
         )
 
     def forward(self, x):
-        x = self.main(x)
+        x = x.view(batch_size, num_feature_maps, 1, 1)  # Reshape from [batch_size, 100] to [batch_size, num_feature_maps, 1, 1]
+        x = self.main(x)  # Pass through the generator network
         return x
+

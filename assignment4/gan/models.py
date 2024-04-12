@@ -66,23 +66,28 @@ class Discriminator(nn.Module):
         return self.net(x).view(-1)
 
 class Generator(nn.Module):
-    def __init__(self, noise_dim, output_channels=3):
+    def __init__(self, noise_dim, output_channels=3, img_size=64):
         super(Generator, self).__init__()
         self.noise_dim = noise_dim
+        # Adjust the architecture to match the output size
         self.net = nn.Sequential(
-            nn.ConvTranspose2d(noise_dim, 256, 4, stride=1, padding=0),  # (B, 256, 4, 4)
+            nn.ConvTranspose2d(noise_dim, 512, 4, 1, 0),  # output: [batch, 512, 4, 4]
+            nn.BatchNorm2d(512),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(512, 256, 4, 2, 1),  # output: [batch, 256, 8, 8]
             nn.BatchNorm2d(256),
             nn.ReLU(True),
-            nn.ConvTranspose2d(256, 128, 4, stride=2, padding=1),  # (B, 128, 8, 8)
+            nn.ConvTranspose2d(256, 128, 4, 2, 1),  # output: [batch, 128, 16, 16]
             nn.BatchNorm2d(128),
             nn.ReLU(True),
-            nn.ConvTranspose2d(128, 64, 4, stride=2, padding=1),  # (B, 64, 16, 16)
+            nn.ConvTranspose2d(128, 64, 4, 2, 1),  # output: [batch, 64, 32, 32]
             nn.BatchNorm2d(64),
             nn.ReLU(True),
-            nn.ConvTranspose2d(64, output_channels, 4, stride=2, padding=1),  # (B, 3, 32, 32)
+            nn.ConvTranspose2d(64, output_channels, 4, 2, 1),  # output: [batch, 3, 64, 64]
             nn.Tanh()  # Normalize the images to [-1, 1]
         )
 
     def forward(self, x):
         x = x.view(-1, self.noise_dim, 1, 1)  # Reshape input noise vector into a mini-batch of inputs
         return self.net(x)
+

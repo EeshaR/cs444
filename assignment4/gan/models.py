@@ -33,31 +33,33 @@ class Discriminator(nn.Module):
 class Generator(nn.Module):
     def __init__(self, noise_dim, output_channels=3):
         super(Generator, self).__init__()
+        self.noise_dim = noise_dim
+
         self.main = nn.Sequential(
-            # input is Z, going into a convolution
+            # Input is Z, going into a convolution
             nn.ConvTranspose2d(noise_dim, 512, 4, 1, 0, bias=False),
             nn.BatchNorm2d(512),
             nn.ReLU(True),
-            # state size. 512 x 4 x 4
+            # State size. 512 x 4 x 4
             nn.ConvTranspose2d(512, 256, 4, 2, 1, bias=False),
             nn.BatchNorm2d(256),
             nn.ReLU(True),
-            # state size. 256 x 8 x 8
+            # State size. 256 x 8 x 8
             nn.ConvTranspose2d(256, 128, 4, 2, 1, bias=False),
             nn.BatchNorm2d(128),
             nn.ReLU(True),
-            # state size. 128 x 16 x 16
+            # State size. 128 x 16 x 16
             nn.ConvTranspose2d(128, 64, 4, 2, 1, bias=False),
             nn.BatchNorm2d(64),
             nn.ReLU(True),
-            # state size. 64 x 32 x 32
+            # State size. 64 x 32 x 32
             nn.ConvTranspose2d(64, output_channels, 4, 2, 1, bias=False),
             nn.Tanh()
-            # state size. (output_channels) x 64 x 64
+            # Final state size. (output_channels) x 64 x 64
         )
 
     def forward(self, x):
-        x = x.view(batch_size, num_feature_maps, 1, 1)  # Reshape from [batch_size, 100] to [batch_size, num_feature_maps, 1, 1]
-        x = self.main(x)  # Pass through the generator network
+        # Reshape input noise vector into a batch of images
+        x = x.view(-1, self.noise_dim, 1, 1)  # Reshape to (batch_size, noise_dim, 1, 1)
+        x = self.main(x)
         return x
-

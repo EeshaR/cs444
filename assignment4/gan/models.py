@@ -83,7 +83,7 @@ class Generator(torch.nn.Module):
 
             nn.ReLU(rel_coeff),
             
-            nn.ConvTranspose2d(int((int(new_output / 2)) / 4), self.output_channels, kernel_size, stride, padding),
+            nn.ConvTranspose2d(int((int(new_output / 2)) / 4), output_channels, kernel_size, stride, padding),
             nn.Tanh()
         )
 

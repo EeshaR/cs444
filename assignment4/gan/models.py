@@ -68,22 +68,22 @@ class Generator(torch.nn.Module):
 
             nn.ReLU(rel_coeff),
             
-            nn.ConvTranspose2d(new_output, new_output / 2, kernel_size, stride, padding),
-            nn.BatchNorm2d(new_output / 2),
+            nn.ConvTranspose2d(new_output, int(new_output / 2), kernel_size, stride, padding),
+            nn.BatchNorm2d(int(new_output / 2)),
 
             nn.ReLU(rel_coeff),
             
-            nn.ConvTranspose2d(new_output / 2, (new_output / 2) / 2, kernel_size, stride, padding),
-            nn.BatchNorm2d((new_output / 2) / 2),
+            nn.ConvTranspose2d(int(new_output / 2), int((int(new_output / 2)) / 2), kernel_size, stride, padding),
+            nn.BatchNorm2d(int((int(new_output / 2)) / 2)),
 
             nn.ReLU(rel_coeff),
             
-            nn.ConvTranspose2d((new_output / 2) / 2, ((new_output / 2) / 2) / 2, kernel_size, stride, padding),
-            nn.BatchNorm2d(((new_output / 2) / 2) / 2),
+            nn.ConvTranspose2d(int((int(new_output / 2)) / 2), int((int(new_output / 2)) / 4), kernel_size, stride, padding),
+            nn.BatchNorm2d(int((int(new_output / 2)) / 4)),
 
             nn.ReLU(rel_coeff),
             
-            nn.ConvTranspose2d(((new_output / 2) / 2) / 2, self.output_channels, kernel_size, stride, padding),
+            nn.ConvTranspose2d(int((int(new_output / 2)) / 4), self.output_channels, kernel_size, stride, padding),
             nn.Tanh()
         )
 

@@ -72,7 +72,7 @@ class Agent():
         rewards = torch.FloatTensor(rewards).cuda()
         next_states = np.float32(history[:, 1:, :, :]) / 255.
         dones = mini_batch[3] # checks if the game is over
-        mask = torch.tensor(list(map(int, dones==False)),dtype=torch.uint8)
+        mask = torch.tensor(list(map(int, dones==False)),dtype=torch.uint8).to(device)
 
 
         # Compute Q(s_t, a), the Q-value of the current state

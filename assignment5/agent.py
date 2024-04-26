@@ -43,12 +43,15 @@ class Agent():
     """Get action using policy net using epsilon-greedy policy"""
     def get_action(self, state):
         if np.random.rand() <= self.epsilon:
-            return torch.tensor([random.randrange(self.action_size)], device=device)  # Ensure it's a tensor
+            # Randomly select an action, ensure it's a tensor
+            return torch.tensor([random.randrange(self.action_size)], device=device)
         else:
+            # Compute the action using the policy net
             with torch.no_grad():
                 state = state.unsqueeze(0)  # Add batch dimension if not already added
             q_values = self.policy_net(state)
-            return q_values.max(1)[1]  # This is already a tensor
+            # Return the action as a single-element tensor
+            return q_values.max(1)[1].view(1)  # Flatten to [1] instead of [1,1] or something similar
 
     # pick samples randomly from replay memory (with batch_size)
     def train_policy_net(self, frame):

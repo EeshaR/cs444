@@ -39,7 +39,10 @@ class Agent():
 
         # Initialize a target network and initialize the target network to the policy net
         ### CODE ###
-
+        self.target_net = DQN(action_size)
+        self.target_net.to(device)
+        self.target_net.load_state_dict(self.policy_net.state_dict())
+        self.target_net.eval()  # Set the target net to evaluation mode
 
     def load_policy_net(self, path):
         self.policy_net = torch.load(path)           
@@ -47,17 +50,20 @@ class Agent():
     # after some time interval update the target net to be same with policy net
     def update_target_net(self):
         ### CODE ###
-        pass
+        self.target_net.load_state_dict(self.policy_net.state_dict())
 
 
     """Get action using policy net using epsilon-greedy policy"""
     def get_action(self, state):
         if np.random.rand() <= self.epsilon:
             ### CODE #### (copy over from agent.py!)
-            pass
+            a = random.randrange(self.action_size)
         else:
             ### CODE #### (copy over from agent.py!)
-            pass
+            state = torch.from_numpy(state).float().unsqueeze(0).to(device)
+            with torch.no_grad():
+                q_values = self.policy_net(state)
+                a = q_values.max(1)[1].item()
         return a
 
     # pick samples randomly from replay memory (with batch_size)
@@ -77,9 +83,23 @@ class Agent():
         rewards = torch.FloatTensor(rewards).cuda()
         next_states = np.float32(history[:, 1:, :, :]) / 255.
         dones = mini_batch[3] # checks if the game is over
-        musk = torch.tensor(list(map(int, dones==False)),dtype=torch.uint8)
+        mask = torch.tensor(list(map(int, dones==False)),dtype=torch.uint8)
         
         # Your agent.py code here with double DQN modifications
         ### CODE ###
-     
+        # Compute Q(s_t, a) using policy net
+        current_q_values = self.policy_net(states).gather(1, actions.unsqueeze(1)).squeeze(1)
         
+        # Compute V(s_{t+1}) for all next states using target net
+        next_q_values = self.target_net(next_states).max(1)[0]
+        # Compute the expected Q values
+        expected_q_values = rewards + self.discount_factor * next_q_values * mask
+
+        # Compute Huber loss
+        loss = F.smooth_l1_loss(current_q_values, expected_q_values.detach())
+        
+        # Backpropagation
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        self.scheduler.step()

@@ -45,11 +45,14 @@ class Agent():
         if np.random.rand() <= self.epsilon:
             ### CODE #### 
             # Choose a random action
-            pass
+            a = random.randrange(self.action_size)
         else:
             ### CODE ####
             # Choose the best action
-            pass
+            state = torch.from_numpy(state).float().unsqueeze(0).to(device)
+            with torch.no_grad():
+                q_values = self.policy_net(state)
+                a = q_values.max(1)[1].item()
         return a
 
     # pick samples randomly from replay memory (with batch_size)

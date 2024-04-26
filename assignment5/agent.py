@@ -57,52 +57,50 @@ class Agent():
     def train_policy_net(self, frame):
         if self.epsilon > self.epsilon_min:
             self.epsilon -= self.epsilon_decay
-
+    
         mini_batch = self.memory.sample_mini_batch(frame)
         mini_batch = np.array(mini_batch, dtype=object).transpose()
-
-        history = np.stack(mini_batch[0], axis=0)
-        states = np.float32(history[:, :4, :, :]) / 255.
-        states = torch.from_numpy(states).cuda()
+    
+        # Prepare the states
+        states = np.stack(mini_batch[0], axis=0)
+        states = np.float32(states[:, :4, :, :]) / 255.
+        states = torch.from_numpy(states).to(device)  # Convert to tensor and move to device
+    
+        # Prepare the actions
         actions = list(mini_batch[1])
-        actions = torch.LongTensor(actions).cuda()
+        actions = torch.LongTensor(actions).to(device)
+    
+        # Prepare the rewards
         rewards = list(mini_batch[2])
-        rewards = torch.FloatTensor(rewards).cuda()
-        next_states = np.float32(history[:, 1:, :, :]) / 255.
-        dones = mini_batch[3] # checks if the game is over
-        mask = torch.tensor(list(map(int, dones==False)), dtype=torch.uint8).to(device)
-
-
-        # Compute Q(s_t, a), the Q-value of the current state
-        # ## CODE ####
-
-        # Compute Q function of next state
-        # ## CODE ####
-
-        # Find maximum Q-value of action at next state from policy net
-        # ## CODE ####
-
-        # Compute the Huber Loss
-        # ## CODE ####
-
-        # Optimize the model, .step() both the optimizer and the scheduler!
-        # ## CODE ####
-
+        rewards = torch.FloatTensor(rewards).to(device)
+    
+        # Prepare the next states
+        next_states = np.stack(mini_batch[3], axis=0)
+        next_states = np.float32(next_states[:, 1:, :, :]) / 255.
+        next_states = torch.from_numpy(next_states).to(device)  # Convert to tensor and move to device
+    
+        # Prepare the done masks
+        dones = mini_batch[4]  # Assuming this is where dones are stored in your batch
+        mask = torch.tensor(list(map(int, dones == False)), dtype=torch.uint8).to(device)
+    
         # Compute Q(s_t, a), the Q-value of the current state
         current_q_values = self.policy_net(states).gather(1, actions.unsqueeze(1)).squeeze(1)
-
+    
         # Compute Q function of next state
         next_q_values = self.policy_net(next_states).max(1)[0]
-
-        # Find maximum Q-value of action at next state from policy net
-        # Apply mask and discount factor
+    
+        # Compute the expected Q values
         expected_q_values = (next_q_values * mask * self.discount_factor) + rewards
-
-        # Compute the Huber Loss
+    
+        # Compute the loss
         loss = F.smooth_l1_loss(current_q_values, expected_q_values.detach())
-
-        # Optimize the model, .step() both the optimizer and the scheduler!
+    
+        # Optimize the model
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
         self.scheduler.step()
+    
+        # Decrease epsilon
+        self.epsilon -= self.epsilon_decay
+        self.epsilon = max(self.epsilon, self.epsilon_min)

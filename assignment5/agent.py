@@ -73,16 +73,35 @@ class Agent():
 
 
         # Compute Q(s_t, a), the Q-value of the current state
-        ### CODE ####
+        # ## CODE ####
 
         # Compute Q function of next state
-        ### CODE ####
+        # ## CODE ####
 
         # Find maximum Q-value of action at next state from policy net
-        ### CODE ####
+        # ## CODE ####
 
         # Compute the Huber Loss
-        ### CODE ####
+        # ## CODE ####
 
         # Optimize the model, .step() both the optimizer and the scheduler!
-        ### CODE ####
+        # ## CODE ####
+
+        # Compute Q(s_t, a), the Q-value of the current state
+        current_q_values = self.policy_net(states).gather(1, actions.unsqueeze(1)).squeeze(1)
+
+        # Compute Q function of next state
+        next_q_values = self.policy_net(next_states).max(1)[0]
+
+        # Find maximum Q-value of action at next state from policy net
+        # Apply mask and discount factor
+        expected_q_values = (next_q_values * mask * self.discount_factor) + rewards
+
+        # Compute the Huber Loss
+        loss = F.smooth_l1_loss(current_q_values, expected_q_values.detach())
+
+        # Optimize the model, .step() both the optimizer and the scheduler!
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        self.scheduler.step()

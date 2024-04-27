@@ -63,24 +63,32 @@ class Agent():
     
         # Prepare the states
         states = np.stack(mini_batch[0], axis=0)
-        states = np.float32(states[:, :4, :, :]) / 255.
+        if states.ndim != 4:
+            raise ValueError(f"Expected states to have 4 dimensions, got {states.ndim}")
+        states = np.float32(states) / 255.
         states = torch.from_numpy(states).to(device)  # Convert to tensor and move to device
     
         # Prepare the actions
         actions = list(mini_batch[1])
+        if not isinstance(actions[0], int):
+            raise ValueError("Actions are expected to be integers.")
         actions = torch.LongTensor(actions).to(device)
     
         # Prepare the rewards
         rewards = list(mini_batch[2])
+        if not all(isinstance(reward, (int, float)) for reward in rewards):
+            raise ValueError("Rewards should be integer or float.")
         rewards = torch.FloatTensor(rewards).to(device)
     
         # Prepare the next states
         next_states = np.stack(mini_batch[3], axis=0)
-        next_states = np.float32(next_states[:, 1:, :, :]) / 255.
+        if next_states.ndim != 4:
+            raise ValueError(f"Expected next_states to have 4 dimensions, got {next_states.ndim}")
+        next_states = np.float32(next_states) / 255.
         next_states = torch.from_numpy(next_states).to(device)  # Convert to tensor and move to device
     
         # Prepare the done masks
-        dones = mini_batch[4]  # Assuming this is where dones are stored in your batch
+        dones = mini_batch[4]
         mask = torch.tensor(list(map(int, dones == False)), dtype=torch.uint8).to(device)
     
         # Compute Q(s_t, a), the Q-value of the current state

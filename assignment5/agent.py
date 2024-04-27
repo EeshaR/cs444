@@ -61,51 +61,36 @@ class Agent():
         mini_batch = self.memory.sample_mini_batch(frame)
         mini_batch = np.array(mini_batch, dtype=object).transpose()
     
-        # Prepare the states
-        states = np.stack(mini_batch[0], axis=0)
-        states = np.float32(states) / 255.
-        states = torch.from_numpy(states).to(device)  # Convert to tensor and move to device
-    
-        # Prepare the actions
+        history = np.stack(mini_batch[0], axis=0)
+        states = np.float32(history[:, :4, :, :]) / 255.
+        states = torch.from_numpy(states).cuda()
         actions = list(mini_batch[1])
-        # Check if actions are tensors and convert them
-        if isinstance(actions[0], torch.Tensor):
-            actions = [action.item() for action in actions]
-        elif not isinstance(actions[0], int):
-            raise ValueError("Actions are expected to be integers or tensors.")
-        actions = torch.LongTensor(actions).to(device)
-    
-        # Prepare the rewards
+        actions = torch.LongTensor(actions).cuda()
         rewards = list(mini_batch[2])
-        rewards = torch.FloatTensor(rewards).to(device)
-    
-        # Prepare the next states
-        next_states = np.stack(mini_batch[3], axis=0)
-        next_states = np.float32(next_states) / 255.
-        next_states = torch.from_numpy(next_states).to(device)  # Convert to tensor and move to device
-    
-        # Prepare the done masks
-        dones = mini_batch[4]
-        mask = torch.tensor(list(map(int, dones == False)), dtype=torch.uint8).to(device)
+        rewards = torch.FloatTensor(rewards).cuda()
+        next_states = np.float32(history[:, 1:, :, :]) / 255.
+        next_states = torch.from_numpy(next_states).cuda()
+        dones = mini_batch[3]
+        mask = torch.tensor(list(map(int, dones == False)), dtype=torch.uint8).cuda()
     
         # Compute Q(s_t, a), the Q-value of the current state
-        current_q_values = self.policy_net(states).gather(1, actions.unsqueeze(1)).squeeze(1)
+        state_action_values = self.policy_net(states).gather(1, actions.unsqueeze(1)).squeeze(1)
     
         # Compute Q function of next state
-        next_q_values = self.policy_net(next_states).max(1)[0]
+        next_state_values = self.policy_net(next_states).max(1)[0]
     
-        # Compute the expected Q values
-        expected_q_values = (next_q_values * mask * self.discount_factor) + rewards
+        # Find maximum Q-value of action at next state from policy net
+        # Note: next_state_values is already the max Q-value due to .max(1)[0] above
+        next_state_values = next_state_values.detach()  # detach to stop gradient backpropagation to target net
     
-        # Compute the loss
-        loss = F.smooth_l1_loss(current_q_values, expected_q_values.detach())
+        # Compute expected Q values
+        expected_state_action_values = rewards + (self.discount_factor * next_state_values * mask)
+    
+        # Compute the Huber Loss
+        loss = F.smooth_l1_loss(state_action_values, expected_state_action_values)
     
         # Optimize the model
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
         self.scheduler.step()
-    
-        # Decrease epsilon
-        self.epsilon -= self.epsilon_decay
-        self.epsilon = max(self.epsilon, self.epsilon_min)

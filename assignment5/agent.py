@@ -48,6 +48,7 @@ class Agent():
         else:
             # Compute the action using the policy net
             with torch.no_grad():
+                state = torch.from_numpy(state).float().to(device)  # Convert state to a PyTorch tensor and move to the appropriate device
                 state = state.unsqueeze(0)  # Add batch dimension if not already added
             q_values = self.policy_net(state)
             # Return the action as a single-element tensor

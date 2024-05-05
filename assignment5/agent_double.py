@@ -41,8 +41,8 @@ class Agent():
         ### CODE ###
         self.target_net = DQN(action_size)
         self.target_net.to(device)
-        self.target_net.load_state_dict(self.policy_net.state_dict())
-        self.target_net.eval()  # Set the target net to evaluation mode
+        self.update_target_net()
+
 
     def load_policy_net(self, path):
         self.policy_net = torch.load(path)           
@@ -51,6 +51,8 @@ class Agent():
     def update_target_net(self):
         ### CODE ###
         self.target_net.load_state_dict(self.policy_net.state_dict())
+        # pass
+
 
     """Get action using policy net using epsilon-greedy policy"""
     def get_action(self, state):
@@ -66,15 +68,14 @@ class Agent():
             # Return the action as a single-element tensor
             return q_values.max(1)[1].view(1)  # Flatten to [1] instead of [1,1] or something similar
 
-
     # pick samples randomly from replay memory (with batch_size)
     def train_policy_net(self, frame):
         if self.epsilon > self.epsilon_min:
             self.epsilon -= self.epsilon_decay
-
+    
         mini_batch = self.memory.sample_mini_batch(frame)
         mini_batch = np.array(mini_batch, dtype=object).transpose()
-
+    
         history = np.stack(mini_batch[0], axis=0)
         states = np.float32(history[:, :4, :, :]) / 255.
         states = torch.from_numpy(states).cuda()
@@ -83,24 +84,27 @@ class Agent():
         rewards = list(mini_batch[2])
         rewards = torch.FloatTensor(rewards).cuda()
         next_states = np.float32(history[:, 1:, :, :]) / 255.
-        dones = mini_batch[3] # checks if the game is over
-        mask = torch.tensor(list(map(int, dones==False)),dtype=torch.uint8)
-        
-        # Your agent.py code here with double DQN modifications
-        ### CODE ###
-        # Compute Q(s_t, a) using policy net
-        current_q_values = self.policy_net(states).gather(1, actions.unsqueeze(1)).squeeze(1)
-        
-        # Compute V(s_{t+1}) for all next states using target net
-        next_q_values = self.target_net(next_states).max(1)[0]
-        # Compute the expected Q values
-        expected_q_values = rewards + self.discount_factor * next_q_values * mask
+        next_states = torch.from_numpy(next_states).cuda()
+        dones = mini_batch[3]
+        mask = torch.tensor(list(map(int, dones == False)), dtype=torch.uint8).cuda()
 
-        # Compute Huber loss
-        loss = F.smooth_l1_loss(current_q_values, expected_q_values.detach())
-        
-        # Backpropagation
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
-        self.scheduler.step()
+        # Your agent.py code here with double DQN modifications
+        ### CODE ###"
+
+        # Compute Q(s_t, a), the Q-value of the current state
+        current_q = self.policy_net(states).gather(1, actions.unsqueeze(1))
+
+        # Compute Q function of next state using policy net
+        next_states = torch.FloatTensor(next_states).to(device)
+        next_q_actions = self.policy_net(next_states).argmax(dim=1)
+        next_q_values = self.policy_net(next_states).detach().gather(1, next_q_actions.unsqueeze(1))
+
+        # Compute Q function of next state using target net
+        target_q_values = self.policy_net_target(next_states).detach()
+        next_q = target_q_values.gather(1, next_q_actions.unsqueeze(1)).squeeze()
+
+        # Compute the target Q value
+        target_q = rewards + (self.discount_factor * next_q * mask)
+
+        # Compute the Huber Loss
+        loss = F.smooth_l1_loss(current_q, target_q.unsqueeze(1))

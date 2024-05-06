@@ -49,9 +49,7 @@ class DQN_LSTM(nn.Module):
         # Pass the state through an LSTM
         ### CODE ###
 
-        lstm_output, hidden = self.lstm(x, hidden)  # process with LSTM layer
-
-        # Take only the last output of the sequence for decision making
-        lstm_output = lstm_output[:, -1, :]  # We take the last step's output for making a decision
+        lstm_output, hidden = self.lstm(x, hidden)
+        lstm_output = lstm_output[:, -1, :] # last output only 
 
         return self.head(lstm_output), hidden

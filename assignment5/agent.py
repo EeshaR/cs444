@@ -33,9 +33,15 @@ class Agent():
         # Create the policy net
         self.policy_net = DQN(action_size)
         self.policy_net.to(device)
+        self.target_net = DQN(action_size)
+        self.target_net.to(device)
 
         self.optimizer = optim.Adam(params=self.policy_net.parameters(), lr=learning_rate)
         self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=scheduler_step_size, gamma=scheduler_gamma)
+
+        # added for target 
+        self.target_net.load_state_dict(self.policy_net.state_dict())
+        self.target_net.eval()
 
     def load_policy_net(self, path):
         self.policy_net = torch.load(path)
@@ -43,25 +49,27 @@ class Agent():
     """Get action using policy net using epsilon-greedy policy"""
     def get_action(self, state):
         if np.random.rand() <= self.epsilon:
-            # Randomly select an action, ensure it's a tensor
-            return torch.tensor([random.randrange(self.action_size)], device=device)
+            ### CODE #### 
+            # Choose a random action
+            a = torch.tensor([random.randrange(self.action_size)], device = device) # specify device for device error 
         else:
-            # Compute the action using the policy net
-            with torch.no_grad():
-                state = torch.from_numpy(state).float().to(device)  # Convert state to a PyTorch tensor and move to the appropriate device
-                state = state.unsqueeze(0)  # Add batch dimension if not already added
-            q_values = self.policy_net(state)
-            # Return the action as a single-element tensor
-            return q_values.max(1)[1].view(1)  # Flatten to [1] instead of [1,1] or something similar
+            ### CODE ####
+            # Choose the best action
+            # Tried w/o using tensor or torch, but recieved integer cannot be converted to tensor error 
+            with torch.no_grad(): # https://pytorch.org/docs/stable/generated/torch.no_grad.html
+                state = torch.from_numpy(state).float().to(device) # device added for cpu error (from campuswire)
+                state = state.unsqueeze(0) # numpy issue 
+            a = (self.policy_net(state)).max(1)[1].view(1) # added .view() for tensor issue 
+        return a
 
     # pick samples randomly from replay memory (with batch_size)
     def train_policy_net(self, frame):
         if self.epsilon > self.epsilon_min:
             self.epsilon -= self.epsilon_decay
-    
+
         mini_batch = self.memory.sample_mini_batch(frame)
         mini_batch = np.array(mini_batch, dtype=object).transpose()
-    
+
         history = np.stack(mini_batch[0], axis=0)
         states = np.float32(history[:, :4, :, :]) / 255.
         states = torch.from_numpy(states).cuda()
@@ -70,28 +78,29 @@ class Agent():
         rewards = list(mini_batch[2])
         rewards = torch.FloatTensor(rewards).cuda()
         next_states = np.float32(history[:, 1:, :, :]) / 255.
-        next_states = torch.from_numpy(next_states).cuda()
-        dones = mini_batch[3]
-        mask = torch.tensor(list(map(int, dones == False)), dtype=torch.uint8).cuda()
-    
+        dones = mini_batch[3] # checks if the game is over
+        mask = torch.tensor(list(map(int, dones == False)), dtype=torch.uint8).cuda() # added device specific because was getting cpu error 
+
         # Compute Q(s_t, a), the Q-value of the current state
-        state_action_values = self.policy_net(states).gather(1, actions.unsqueeze(1)).squeeze(1)
-    
-        # Compute Q function of next state
-        next_state_values = self.policy_net(next_states).max(1)[0]
-    
-        # Find maximum Q-value of action at next state from policy net
-        # Note: next_state_values is already the max Q-value due to .max(1)[0] above
-        next_state_values = next_state_values.detach()  # detach to stop gradient backpropagation to target net
-    
-        # Compute expected Q values
-        expected_state_action_values = rewards + (self.discount_factor * next_state_values * mask)
-    
+        ### CODE ####
+        current_state = self.policy_net(states).gather(1, actions.unsqueeze(1)).squeeze(1)
+        # https://stackoverflow.com/questions/56406188/how-to-use-gather-function-for-multiple-value-arguments-in-r
+
+        # Compute Q function of next state and find maximum Q-value of action at next state from policy net
+        ### CODE ####
+        next_state = self.discount_factor * (self.target_net(next_states).max(1)[0]) * mask + rewards
+        # https://stackoverflow.com/questions/56075838/how-to-generate-the-values-for-the-q-function
+
         # Compute the Huber Loss
-        loss = F.smooth_l1_loss(state_action_values, expected_state_action_values)
-    
-        # Optimize the model
+        ### CODE ####
+        loss = F.smooth_l1_loss(current_state, next_state.detach())
+        # https://stackoverflow.com/questions/63671163/keras-custom-loss-function-huber
+        # smooth_l1_loss - https://stackoverflow.com/questions/60252902/implementing-smoothl1loss-for-specific-case
+
+        # Optimize the model, .step() both the optimizer and the scheduler!
+        ### CODE ####
         self.optimizer.zero_grad()
         loss.backward()
+        # .step() both the optimizer and the scheduler!
         self.optimizer.step()
         self.scheduler.step()

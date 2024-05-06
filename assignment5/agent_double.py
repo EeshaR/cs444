@@ -43,7 +43,6 @@ class Agent():
         self.target_net.to(device)
         self.update_target_net()
 
-
     def load_policy_net(self, path):
         self.policy_net = torch.load(path)           
 
@@ -53,20 +52,21 @@ class Agent():
         self.target_net.load_state_dict(self.policy_net.state_dict())
         # pass
 
-
     """Get action using policy net using epsilon-greedy policy"""
-    def get_action(self, state):
+    def get_action(self, state): # same from agent.py
         if np.random.rand() <= self.epsilon:
-            # Randomly select an action, ensure it's a tensor
-            return torch.tensor([random.randrange(self.action_size)], device=device)
+            ### CODE #### 
+            # Choose a random action
+            a = torch.tensor([random.randrange(self.action_size)], device = device) # specify device for device error 
         else:
-            # Compute the action using the policy net
-            with torch.no_grad():
-                state = torch.from_numpy(state).float().to(device)  # Convert state to a PyTorch tensor and move to the appropriate device
-                state = state.unsqueeze(0)  # Add batch dimension if not already added
-            q_values = self.policy_net(state)
-            # Return the action as a single-element tensor
-            return q_values.max(1)[1].view(1)  # Flatten to [1] instead of [1,1] or something similar
+            ### CODE ####
+            # Choose the best action
+            # Tried w/o using tensor or torch, but recieved integer cannot be converted to tensor error 
+            with torch.no_grad(): # https://pytorch.org/docs/stable/generated/torch.no_grad.html
+                state = torch.from_numpy(state).float().to(device) # device added for cpu error (from campuswire)
+                state = state.unsqueeze(0) # numpy issue 
+            a = (self.policy_net(state)).max(1)[1].view(1) # added .view() for tensor issue 
+        return a
 
     # pick samples randomly from replay memory (with batch_size)
     def train_policy_net(self, frame):
@@ -92,19 +92,33 @@ class Agent():
         ### CODE ###"
 
         # Compute Q(s_t, a), the Q-value of the current state
-        current_q = self.policy_net(states).gather(1, actions.unsqueeze(1))
-
+        ### CODE ####
+        current_q = self.policy_net(states).gather(1, actions.unsqueeze(1)).squeeze()
+        # https://stackoverflow.com/questions/56406188/how-to-use-gather-function-for-multiple-value-arguments-in-r
+        
+        # Take the best action for the next states
+        next_actions = self.policy_net(next_states).max(1)[1]
+        
         # Compute Q function of next state using policy net
-        next_states = torch.FloatTensor(next_states).to(device)
-        next_q_actions = self.policy_net(next_states).argmax(dim=1)
-        next_q_values = self.policy_net(next_states).detach().gather(1, next_q_actions.unsqueeze(1))
-
-        # Compute Q function of next state using target net
-        target_q_values = self.policy_net_target(next_states).detach()
-        next_q = target_q_values.gather(1, next_q_actions.unsqueeze(1)).squeeze()
-
+        ### CODE ####
+        # next_states = torch.FloatTensor(next_states).to(device)
+        next_state_values = self.target_net(next_states).gather(1, next_actions.unsqueeze(1)).squeeze()
+        next_state_values = next_state_values.detach()  
+        
         # Compute the target Q value
-        target_q = rewards + (self.discount_factor * next_q * mask)
-
+        ### CODE ####
+        target_q = (self.discount_factor * next_state_values * mask) + rewards
+        # https://stackoverflow.com/questions/56075838/how-to-generate-the-values-for-the-q-function
+        
         # Compute the Huber Loss
-        loss = F.smooth_l1_loss(current_q, target_q.unsqueeze(1))
+        loss = F.smooth_l1_loss(current_q, target_q)
+        # https://stackoverflow.com/questions/63671163/keras-custom-loss-function-huber
+        # smooth_l1_loss - https://stackoverflow.com/questions/60252902/implementing-smoothl1loss-for-specific-case
+        
+         # Optimize the model, .step() both the optimizer and the scheduler!
+        ### CODE ####
+        self.optimizer.zero_grad()
+        loss.backward()
+        # .step() both the optimizer and the scheduler!
+        self.optimizer.step()
+        self.scheduler.step()
